@@ -177,13 +177,10 @@ AvgPool + LS + Ema + BN in XCA
 
 --- 
 
-
 Код для запусков скриптов на vast.ai
-
-python3 -m pip install -U pip && pip3 install -U onnx onnx-simplifier onnxruntime einops timm opencv-python opencv-python-headless matplotlib fvcore
-pip3 install git+https://github.com/bonlime/pytorch-tools.git@master
-pip3 install torch --extra-index-url https://download.pytorch.org/whl/cu116
 git clone https://github.com/bonlime/next-xcit && cd next-xcit/deployment/
-python3 export_tensorrt_engine.py --model nextvit_small_xca --trtexec-path `which trtexec`
+make install && make measure && make print
 
-python3 export_tensorrt_engine.py --model nextvit_small_xca --trtexec-path `which trtexec` --skip-trt-convert --profile
+<!-- python3 export_tensorrt_engine.py --model nextvit_small_xca --trtexec-path `which trtexec` --skip-onnx-export --skip-trt-convert --profile > xca.log -->
+
+
