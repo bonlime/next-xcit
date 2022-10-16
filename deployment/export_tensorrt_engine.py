@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import torch
+import torch.nn as nn
 import argparse
 
 # from timm.models import create_model
@@ -57,16 +58,23 @@ parser.add_argument(
 parser.add_argument("--skip-onnx-export", action="store_true")
 parser.add_argument("--skip-trt-convert", action="store_true")
 parser.add_argument("--profile", action="store_true", help="profile the performance of the trt engine.")
+parser.add_argument("--new-act", type=str, default=None)
+
 
 args = parser.parse_args()
 
 
-def remove_bn(module: torch.nn.Module) -> None:
+def remove_bn(module: nn.Module) -> None:
     for mod_name, mod in module.named_children():
-        if isinstance(mod, torch.nn.BatchNorm2d):
-            setattr(module, mod_name, torch.nn.Identity())
+        if isinstance(mod, nn.BatchNorm2d):
+            setattr(module, mod_name, nn.Identity())
         remove_bn(mod)
 
+def change_activation(module: nn.Module, new_activation: nn.Module) -> None:
+    for mod_name, mod in module.named_children():
+        if isinstance(mod, nn.ReLU):
+            setattr(module, mod_name, new_activation())
+        change_activation(mod)
 
 def main():
     if args.model == "nextvit_small_xca":
@@ -84,6 +92,8 @@ def main():
     # Merge pre bn before exporting onnx/coreml model to speedup inference.
     # all this BN could be merged into convs, so remove them for measuring speed
     remove_bn(model)
+    if args.new_act == "hswish":
+        change_activation(model, nn.Hardswish)
 
     engine_file = f"{args.model}_{args.image_size}x{args.image_size}"
 

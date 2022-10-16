@@ -183,4 +183,22 @@ make install && make measure && make print
 
 <!-- python3 export_tensorrt_engine.py --model nextvit_small_xca --trtexec-path `which trtexec` --skip-onnx-export --skip-trt-convert --profile > xca.log -->
 
-
+[10/16/2022-15:31:42] [I]                                                                    Layer   Time (ms)   Avg. Time (ms)   Median Time (ms)   Time %
+XCA @ 224
+[10/16/2022-15:30:14] [I]                                                                Total     2533.89           2.4915             2.4929    100.0
+XCA @ 384
+[10/16/2022-15:35:57] [I]                                                                Total     2460.25           5.3953             5.3927    100.0
+XCA @ 512
+[10/16/2022-15:42:05] [I]                                                                Total     2455.62           8.9295             8.9344    100.0
+VIT @ 224
+[10/16/2022-15:31:42] [I]                                                                    Total     2547.18           2.5270             2.5202    100.0
+VIT @ 384
+[10/16/2022-15:37:32] [I]                                                                    Total     2524.35           6.1570             6.1585    100.0
+VIT @ 512
+[10/16/2022-15:43:54] [I]                                                                    Total     2541.46          10.8147            10.8188    100.0
+VIT_orig @ 224
+[10/16/2022-15:33:32] [I]                                                                          Total     2543.18           2.7317             2.7306    100.0
+VIT_orig @ 384
+[10/16/2022-15:39:29] [I]                                                                  Total     2539.41           6.5788             6.5811    100.0
+VIT_orig @ 512
+[10/16/2022-15:46:21] [I]                                                                          Total     2555.49          11.4084            11.4064    100.0
