@@ -245,7 +245,6 @@ def main(args):
     )
 
     if not args.distributed or args.rank == 0:
-        print(model)
         input_tensor = torch.zeros((1, 3, args.input_size, args.input_size), dtype=torch.float32)
         model.eval()
         utils.cal_flops_params_with_fvcore(model, input_tensor)
@@ -314,9 +313,10 @@ def main(args):
                     loss_scaler.load_state_dict(checkpoint['scaler'])
 
     if args.eval:
-        if hasattr(model.module, "merge_bn"):
-            print("Merge pre bn to speedup inference.")
-            model.module.merge_bn()
+        # if hasattr(model.module, "merge_bn"):
+        #     print("Merge pre bn to speedup inference.")
+        #     model.module.merge_bn()
+        print("Starting evaluate")
         test_stats = evaluate(data_loader_val, model, device)
         print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
         return

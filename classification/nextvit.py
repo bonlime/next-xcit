@@ -17,6 +17,8 @@ def conv1x1(in_planes, out_planes, stride=1, bias=False):
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=bias)
 
 class ConvBNReLU(nn.Sequential):
+    residual: bool = False
+
     def __init__(
             self,
             in_channels,
@@ -26,25 +28,46 @@ class ConvBNReLU(nn.Sequential):
             groups=1):
         super().__init__()
         
+        self.in_chs = in_channels
+        self.out_chs = out_channels
+
         self.block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=1, groups=groups, bias=False),
             nn.BatchNorm2d(out_channels, eps=NORM_EPS),
             nn.ReLU(inplace=True),
         )
+        need_pool = (stride > 1) and self.residual
+        self.pool = nn.AvgPool2d(stride) if need_pool else nn.Identity()
 
     def forward(self, x):
-        return self.block(x)
+        out = self.block(x)
+        if self.residual:
+            x_ = self.pool(x)
+            if self.in_chs < self.out_chs:
+                out_1, out_2 = out.split((self.in_chs, self.out_chs - self.in_chs), dim=1)
+                out_1 = out_1 + x_
+                return torch.cat([out_1, out_2], dim=1)
+                # for inference could use inplace version
+                # out[:, :self.in_chs] = x_
+                # return out
+            elif self.in_chs > self.out_chs:
+                return out + x_[:, :self.out_chs]
+            else: # in_chs == out_chs
+                return out + x_
+        else:
+            return out
 
 
-class LayerScale2d(nn.Module):
-    def __init__(self, dim, init_values=1e-5):
-        super().__init__()
-        self.gamma = nn.Parameter(init_values * torch.ones(1, dim, 1, 1))
+# commenting it out as it increases memory footprint, while not bringing any real improvements
+# class LayerScale2d(nn.Module):
+#     def __init__(self, dim, init_values=1e-5):
+#         super().__init__()
+#         self.gamma = nn.Parameter(init_values * torch.ones(1, dim, 1, 1))
 
-    def forward(self, x):
-        # checkpoint gives -7-10% reduction in memory and -0% in speed
-        # return checkpoint(torch.mul, x, self.gamma, use_reentrant=False)
-        return x * self.gamma
+#     def forward(self, x):
+#         # checkpoint gives -7-10% reduction in memory and -0% in speed
+#         return checkpoint(torch.mul, x, self.gamma, use_reentrant=False)
+#         # return x * self.gamma
 
 def _make_divisible(v, divisor, min_value=None):
     if min_value is None:
@@ -119,12 +142,12 @@ class NCB(nn.Module):
             self.patch_embed = nn.Identity()
         self.mhca = nn.Sequential(
             MHCA(out_channels, head_dim),
-            LayerScale2d(out_channels),
+            # LayerScale2d(out_channels),
             DropPath(path_dropout),
         )
         self.mlp = nn.Sequential(
             Mlp(out_channels, mlp_ratio=mlp_ratio, drop=drop, bias=True),
-            LayerScale2d(out_channels),
+            # LayerScale2d(out_channels),
             DropPath(path_dropout),
         )
         self.is_bn_merged = False
@@ -235,43 +258,43 @@ class NCB(nn.Module):
 #         x = self.proj_drop(x)
 #         return x
 
-class GatedPoolConv(nn.Module):
-    """Idea from 
-    `HorNet: Efficient High-Order Spatial Interactions with Recursive Gated Convolutions`
-    but with fixed order = 2 and extra down-scaling factor to get larger context
-    """
-    def __init__(self, dim, kernel: int=7, downscale_factor: int=1, gamma_init: float = 1e-3):
-        super().__init__()
+# class GatedPoolConv(nn.Module):
+#     """Idea from 
+#     `HorNet: Efficient High-Order Spatial Interactions with Recursive Gated Convolutions`
+#     but with fixed order = 2 and extra down-scaling factor to get larger context
+#     """
+#     def __init__(self, dim, kernel: int=7, downscale_factor: int=1, gamma_init: float = 1e-3):
+#         super().__init__()
         
-        self.dim = dim
-        if downscale_factor > 1:
-            down = nn.MaxPool2d(kernel_size=downscale_factor)
-            up = nn.Upsample(scale_factor=downscale_factor, mode="nearest")
-            # down = nn.Upsample(scale_factor=1./downscale_factor, mode="bilinear", align_corners=False)
-            # up = nn.Upsample(scale_factor=downscale_factor, mode="bilinear", align_corners=False)
-        else:
-            down = nn.Identity()
-            up = nn.Identity()
+#         self.dim = dim
+#         if downscale_factor > 1:
+#             down = nn.MaxPool2d(kernel_size=downscale_factor)
+#             up = nn.Upsample(scale_factor=downscale_factor, mode="nearest")
+#             # down = nn.Upsample(scale_factor=1./downscale_factor, mode="bilinear", align_corners=False)
+#             # up = nn.Upsample(scale_factor=downscale_factor, mode="bilinear", align_corners=False)
+#         else:
+#             down = nn.Identity()
+#             up = nn.Identity()
         
-        self.down = down
-        self.pw_in = conv1x1(dim, dim, bias=True)
-        dw_dim = int(0.75 * dim)
-        self.dw_conv = nn.Conv2d(dw_dim, dw_dim, kernel_size=kernel, groups=dw_dim, padding=kernel//2, bias=True)
-        self.pw_mid = conv1x1(dim // 4, dim // 2, bias=True)
-        self.pw_out = conv1x1(dim // 2, dim // 2, bias=True)
-        self.pw_large_gate = conv1x1(dim, dim // 2)
-        self.pw_large_out = conv1x1(dim // 2, dim)
-        self.up = up
-        self.register_buffer("gamma", nn.Parameter(torch.ones(1, dim, 1, 1) * gamma_init))
+#         self.down = down
+#         self.pw_in = conv1x1(dim, dim, bias=True)
+#         dw_dim = int(0.75 * dim)
+#         self.dw_conv = nn.Conv2d(dw_dim, dw_dim, kernel_size=kernel, groups=dw_dim, padding=kernel//2, bias=True)
+#         self.pw_mid = conv1x1(dim // 4, dim // 2, bias=True)
+#         self.pw_out = conv1x1(dim // 2, dim // 2, bias=True)
+#         self.pw_large_gate = conv1x1(dim, dim // 2)
+#         self.pw_large_out = conv1x1(dim // 2, dim)
+#         self.up = up
+#         self.register_buffer("gamma", nn.Parameter(torch.ones(1, dim, 1, 1) * gamma_init))
 
-    def forward(self, x):
-        x_down = self.down(x)
-        gate, dw_inp = self.pw_in(x_down).split((self.dim // 4, 3 * self.dim // 4), dim=1)
-        dw_out_1, dw_out_2 = self.dw_conv(dw_inp).split((self.dim // 4, self.dim // 2), dim=1)
-        x_down_out = self.pw_mid(dw_out_1 * gate) * dw_out_2
-        x_up = self.up(self.pw_out(x_down_out))
-        out = self.pw_large_out(self.pw_large_gate(x) * x_up) # * self.gamma
-        return out
+#     def forward(self, x):
+#         x_down = self.down(x)
+#         gate, dw_inp = self.pw_in(x_down).split((self.dim // 4, 3 * self.dim // 4), dim=1)
+#         dw_out_1, dw_out_2 = self.dw_conv(dw_inp).split((self.dim // 4, self.dim // 2), dim=1)
+#         x_down_out = self.pw_mid(dw_out_1 * gate) * dw_out_2
+#         x_up = self.up(self.pw_out(x_down_out))
+#         out = self.pw_large_out(self.pw_large_gate(x) * x_up) # * self.gamma
+#         return out
     
     # def merge_bn(self, pre_bn):
     #     pass
@@ -347,13 +370,9 @@ class XCA_mod(nn.Module):
         self.downscale_factor = downscale_factor
 
         if downscale_factor > 1:
-            # self.down = nn.MaxPool2d(kernel_size=downscale_factor)
             self.down = nn.AvgPool2d(kernel_size=downscale_factor)
         else:
             self.down = nn.Identity()
-        # this norm is actually never needed because there is one just before the XCA
-        # self.norm = nn.Identity()
-        # self.norm = nn.BatchNorm2d(dim, eps=NORM_EPS)
 
     def forward(self, x: torch.Tensor):
         B, C, H, W = x.shape
@@ -376,9 +395,6 @@ class XCA_mod(nn.Module):
         x_out = self.proj(x_out)
         return x_out
 
-    # def merge_bn(self, pre_bn):
-    #     raise NotImplemented
-
 class NTB(nn.Module):
     """
     Next Transformer Block
@@ -399,13 +415,9 @@ class NTB(nn.Module):
         self.e_mhsa = nn.Sequential(
             nn.BatchNorm2d(self.mhsa_out_channels),
             XCA_mod(self.mhsa_out_channels, head_dim=head_dim, downscale_factor=sr_ratio),
-            LayerScale2d(self.mhsa_out_channels),
+            # LayerScale2d(self.mhsa_out_channels),
             DropPath(path_dropout*mix_block_ratio),
         )
-        # using slightly smaller downsampling here
-        # self.e_mhsa = PoolConv(self.mhsa_out_channels, downscale_factor=sr_ratio)
-        # self.e_mhsa = PoolConvLarge(self.mhsa_out_channels, downscale_factor=sr_ratio)
-        # self.e_mhsa = GatedPoolConv(self.mhsa_out_channels, downscale_factor=sr_ratio)
 
         self.projection = PatchEmbed(self.mhsa_out_channels, self.mhca_out_channels, stride=1)
         self.mhca = nn.Sequential(
@@ -415,7 +427,7 @@ class NTB(nn.Module):
 
         self.mlp = nn.Sequential(
             Mlp(out_channels, mlp_ratio=mlp_ratio, drop=drop),
-            LayerScale2d(out_channels),
+            # LayerScale2d(out_channels),
             DropPath(path_dropout),
         )
 

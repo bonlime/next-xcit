@@ -95,25 +95,23 @@ def main():
     input_tensor = torch.zeros((args.batch_size, 3, args.image_size, args.image_size), dtype=torch.float32)
     utils.cal_flops_params_with_fvcore(model, input_tensor)
 
-    model = torch.jit.script(model)
+    # model = torch.jit.script(model)
 
     # Merge pre bn before exporting onnx/coreml model to speedup inference.
     if hasattr(model, "merge_bn"):
         model.merge_bn()
 
-    engine_file = "%s_%dx%d" % (args.model, args.image_size, args.image_size)
+    engine_file = f"{args.model}_{args.image_size}x{args.image_size}"
 
     ##export and simplify onnx model
-    # if not os.path.isfile("%s.onnx" % engine_file):
     if not args.skip_onnx_export:
         # torch.set_default_tensor_type('torch.FloatTensor')
         # torch.set_default_tensor_type('torch.cuda.FloatTensor')
         torch.onnx.export(model, input_tensor, \
-                        "%s.onnx" % engine_file, \
-                        opset_version = args.opset_version)
-        onnx_model = onnx.load("%s.onnx" % engine_file)
+                        f"{engine_file}.onnx", verbose=True)
+        onnx_model = onnx.load(f"{engine_file}.onnx")
         model_simp, check = onnx_simplifier.simplify(onnx_model, check_n = 0)
-        onnx.save(model_simp, "%s.onnx" % engine_file)
+        onnx.save(model_simp, f"{engine_file}.onnx")
         print("Finished converting to onnx")
 
     if args.trtexec_path is None:
@@ -122,11 +120,12 @@ def main():
     import subprocess
 
     ##dump trt engine
-    convert_state = subprocess.call("%s --onnx=%s.onnx --saveEngine=%s_%s.trt --explicitBatch --%s" %
-                        (args.trtexec_path, engine_file, engine_file, args.datatype, args.datatype), shell=True)
+    convert_state = subprocess.call(
+        f"{args.trtexec_path} --onnx={engine_file}.onnx --saveEngine={engine_file}_{args.datatype}.trt --explicitBatch --{args.datatype} --verbose", shell=True
+    )
 
     if not convert_state:
-        print("TRT Engine saved to: %s.trt ." % engine_file)
+        print(f"TRT Engine saved to: {engine_file}.trt .")
         if args.profile:
             subprocess.call("%s --loadEngine=%s_%s.trt --threads=%d --warmUp=%d --iterations=%d --dumpProfile=%r" %
                             (args.trtexec_path, engine_file, args.datatype, args.threads, args.warmUp, args.iterations, args.dumpProfile), shell=True)
