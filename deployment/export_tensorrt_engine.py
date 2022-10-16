@@ -25,7 +25,6 @@ parser.add_argument(
 parser.add_argument("--datatype", type=str, default="fp16", choices=["fp16", "int8"], help="datatype of trt engine.")
 parser.add_argument("--opset-version", type=str, default=13, help="the onnx opset version.")
 parser.add_argument("--trtexec-path", type=str, help="path to your trtexec tool.")
-parser.add_argument("--profile", type=bool, default=False, help="profile the performance of the trt engine.")
 parser.add_argument(
     "--threads",
     type=int,
@@ -56,6 +55,8 @@ parser.add_argument(
 )
 
 parser.add_argument("--skip-onnx-export", action="store_true")
+parser.add_argument("--skip-trt-convert", action="store_true")
+parser.add_argument("--profile", action="store_true", help="profile the performance of the trt engine.")
 
 args = parser.parse_args()
 
@@ -101,21 +102,21 @@ def main():
 
     import subprocess
 
-    ##dump trt engine
-    convert_state = subprocess.call(
-        f"{args.trtexec_path} --onnx={engine_file}.onnx --saveEngine={engine_file}_{args.datatype}.trt --explicitBatch --{args.datatype} --verbose",
-        shell=True,
-    )
-
-    if convert_state:
-        print("Convert Engine Failed. Please Check.")
-    else:
+    if not args.skip_trt_convert:
+        ##dump trt engine
+        convert_state = subprocess.call(
+            f"{args.trtexec_path} --onnx={engine_file}.onnx --saveEngine={engine_file}_{args.datatype}.trt --explicitBatch --{args.datatype}",
+            shell=True,
+        )
+        if convert_state:
+            print("Convert Engine Failed. Please Check.")
         print(f"TRT Engine saved to: {engine_file}.trt .")
-        if args.profile:
-            subprocess.call(
-                f"{args.trtexec_path} --loadEngine={engine_file}_{args.datatype}.trt --threads={args.threads} --warmUp={args.warmUp} --iterations={args.iterations} --dumpProfile={args.dumpProfile}",
-                shell=True,
-            )
+
+    if args.profile:
+        subprocess.call(
+            f"{args.trtexec_path} --loadEngine={engine_file}_{args.datatype}.trt --threads={args.threads} --warmUp={args.warmUp} --iterations={args.iterations} --dumpProfile={args.dumpProfile}",
+            shell=True,
+        )
 
 
 if __name__ == "__main__":
