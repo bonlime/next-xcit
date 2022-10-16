@@ -74,7 +74,7 @@ def change_activation(module: nn.Module, new_activation: nn.Module) -> None:
     for mod_name, mod in module.named_children():
         if isinstance(mod, nn.ReLU):
             setattr(module, mod_name, new_activation())
-        change_activation(mod)
+        change_activation(mod, new_activation)
 
 def main():
     if args.model == "nextvit_small_xca":
